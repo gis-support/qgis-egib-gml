@@ -28,9 +28,14 @@ from .resources import *
 
 from .egibGml_dockwidget import EgibGmlDockWidget
 import os
-from shutil import copy2
+import subprocess
 
-from qgis.core import QgsVectorLayer, QgsProject, QgsDataProvider, QgsLayerTreeLayer
+from qgis.core import QgsVectorLayer, QgsProject, QgsDataProvider, QgsLayerTreeLayer, Qgis
+
+from osgeo import ogr
+#Variables necessary for xlink resolution in GMLs
+os.environ['GML_SKIP_RESOLVE_ELEMS'] = 'NONE'
+os.environ['GML_ATTRIBUTES_TO_OGR_FIELDS'] = 'YES'
 
 
 class EgibGml:
@@ -121,20 +126,36 @@ class EgibGml:
     def loadGml(self):
         gmlFile = QFileDialog.getOpenFileName(None, 'Wybierz plik GML...', filter='*.gml')[0]
         gmlName = os.path.basename(gmlFile)[:-4]
-        gfsCopy = os.path.join(os.path.dirname(gmlFile), gmlName + '.gfs')
-        copy2(os.path.join(self.plugin_dir, 'GFS.gfs'), gfsCopy)
-        gmlLayers = QgsVectorLayer(gmlFile, gmlName, 'ogr')
+        gmlNoExt = gmlFile[:-4]
+        gpkgFile = '%s.gpkg' % gmlNoExt
+
+        try:
+            subprocess.check_call(['ogr2ogr', '-f', 'GPKG', gpkgFile, gmlFile])
+        except subprocess.CalledProcessError:
+            self.iface.messageBar().pushMessage(
+                'EGiB GML',
+                'Nie udało się wczytać pliku GML. Wystąpił błąd podczas konwersji GML -> GeoPackage',
+                level=Qgis.Critical)
+            return 0
         root = QgsProject.instance().layerTreeRoot()
         gmlGroup = root.addGroup(gmlName)
+        gmlLayers = QgsVectorLayer(gpkgFile, gmlName, 'ogr')
         for layer in gmlLayers.dataProvider().subLayers():
             layerName = layer.split(QgsDataProvider.SUBLAYER_SEPARATOR)[1]
             vlayer = QgsVectorLayer('{}|layername={}'.format(
-                gmlFile,
+                gpkgFile,
                 layerName
             ), layerName, 'ogr')
             gmlGroup.insertChildNode(1,QgsLayerTreeLayer(vlayer))
             QgsProject.instance().addMapLayer(vlayer, False)
-        os.remove(gfsCopy)
+        
+        os.remove('%s.resolved.gml' % gmlNoExt)
+        os.remove('%s.gfs' % gmlNoExt)
+
+        self.iface.messageBar().pushMessage(
+            'EGiB GML',
+            'Pomyślnie dodano warstwę GML.',
+            level=Qgis.Success)
 
 
     def unload(self):
