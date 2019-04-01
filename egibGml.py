@@ -124,11 +124,12 @@ class EgibGml:
 
 
     def loadGml(self):
-        gmlFile = QFileDialog.getOpenFileName(None, 'Wybierz plik GML...', filter='*.gml')[0]
+        gmlFile = QFileDialog.getOpenFileName(None, 'Wybierz plik GML...', filter='*.gml *.xml')[0]
         gmlName = os.path.basename(gmlFile)[:-4]
         gmlNoExt = gmlFile[:-4]
         gpkgFile = '%s.gpkg' % gmlNoExt
 
+        #Convert to GeoPackage
         try:
             subprocess.check_call(['ogr2ogr', '-f', 'GPKG', gpkgFile, gmlFile])
         except subprocess.CalledProcessError:
@@ -137,6 +138,8 @@ class EgibGml:
                 'Nie udało się wczytać pliku GML. Wystąpił błąd podczas konwersji GML -> GeoPackage',
                 level=Qgis.Critical)
             return 0
+
+        #Add map layers
         root = QgsProject.instance().layerTreeRoot()
         gmlGroup = root.addGroup(gmlName)
         gmlLayers = QgsVectorLayer(gpkgFile, gmlName, 'ogr')
@@ -148,7 +151,6 @@ class EgibGml:
             ), layerName, 'ogr')
             gmlGroup.insertChildNode(1,QgsLayerTreeLayer(vlayer))
             QgsProject.instance().addMapLayer(vlayer, False)
-        
         os.remove('%s.resolved.gml' % gmlNoExt)
         os.remove('%s.gfs' % gmlNoExt)
 
