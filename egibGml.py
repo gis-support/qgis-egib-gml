@@ -172,6 +172,8 @@ class EgibGml:
             'EGiB GML',
             'Pomyślnie dodano warstwę GML.',
             level=Qgis.Success)
+        self.dockwidget.filePathLabel.setText(os.path.basename(gmlFile))
+        self.dockwidget.filePathLabel.setToolTip(gmlFile)
 
 
     def unload(self):
