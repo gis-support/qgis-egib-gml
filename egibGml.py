@@ -23,7 +23,7 @@
 """
 from PyQt5.QtCore import QSettings, QTranslator, qVersion, QCoreApplication, Qt
 from PyQt5.QtGui import QIcon
-from PyQt5.QtWidgets import QAction, QFileDialog
+from PyQt5.QtWidgets import QAction, QFileDialog, QMessageBox
 from .resources import *
 
 from .egibGml_dockwidget import EgibGmlDockWidget
@@ -129,15 +129,26 @@ class EgibGml:
         gmlNoExt = gmlFile[:-4]
         gpkgFile = '%s.gpkg' % gmlNoExt
 
-        #Convert to GeoPackage
-        try:
-            subprocess.check_call(['ogr2ogr', '-f', 'GPKG', gpkgFile, gmlFile])
-        except subprocess.CalledProcessError:
-            self.iface.messageBar().pushMessage(
-                'EGiB GML',
-                'Nie udało się wczytać pliku GML. Wystąpił błąd podczas konwersji GML -> GeoPackage',
-                level=Qgis.Critical)
-            return 0
+        def gml2gpkg():
+            """Convert GML to GeoPackage"""
+            try:
+                subprocess.check_call(['ogr2ogr', '-f', 'GPKG', gpkgFile, gmlFile])
+            except subprocess.CalledProcessError:
+                self.iface.messageBar().pushMessage(
+                    'EGiB GML',
+                    'Nie udało się wczytać pliku GML. Wystąpił błąd podczas konwersji GML -> GeoPackage',
+                    level=Qgis.Critical)
+                return 0
+        
+        if os.path.isfile(gpkgFile):
+            result = QMessageBox.question(self.dockwidget, 'Znany plik',
+                'Plik GML o podanej nazwie został już wcześniej wczytany. Czy chcesz go przywrócić?',
+                QMessageBox.Yes | QMessageBox.No,
+                QMessageBox.Yes)
+            if result == QMessageBox.No:
+                gml2gpkg()
+        else:
+            gml2gpkg()
 
         #Add map layers
         root = QgsProject.instance().layerTreeRoot()
@@ -151,8 +162,11 @@ class EgibGml:
             ), layerName, 'ogr')
             gmlGroup.insertChildNode(1,QgsLayerTreeLayer(vlayer))
             QgsProject.instance().addMapLayer(vlayer, False)
-        os.remove('%s.resolved.gml' % gmlNoExt)
-        os.remove('%s.gfs' % gmlNoExt)
+        try:
+            os.remove('%s.resolved.gml' % gmlNoExt)
+            os.remove('%s.gfs' % gmlNoExt)
+        except FileNotFoundError:
+            pass
 
         self.iface.messageBar().pushMessage(
             'EGiB GML',
