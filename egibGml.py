@@ -169,8 +169,8 @@ class EgibGml:
             gmlGroup.insertChildNode(1,QgsLayerTreeLayer(vlayer))
             QgsProject.instance().addMapLayer(vlayer, False)
         try:
-            os.remove('%s.resolved.gml' % gmlNoExt)
             os.remove('%s.gfs' % gmlNoExt)
+            os.remove('%s.resolved.gml' % gmlNoExt)
         except FileNotFoundError:
             pass
 
