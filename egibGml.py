@@ -33,9 +33,6 @@ import subprocess
 from qgis.core import QgsVectorLayer, QgsProject, QgsDataProvider, QgsLayerTreeLayer, Qgis
 
 from osgeo import ogr
-#Variables necessary for xlink resolution in GMLs
-os.environ['GML_SKIP_RESOLVE_ELEMS'] = 'NONE'
-os.environ['GML_ATTRIBUTES_TO_OGR_FIELDS'] = 'YES'
 
 
 class EgibGml:
@@ -131,8 +128,17 @@ class EgibGml:
 
         def gml2gpkg():
             """Convert GML to GeoPackage"""
+            #Variables necessary for xlink resolution in GMLs
+            conversionParams = [
+                '--config',
+                'GML_ATTRIBUTES_TO_OGR_FIELDS',
+                'YES',
+                '--config',
+                'GML_SKIP_RESOLVE_ELEM', 
+                'NONE'
+            ]
             try:
-                subprocess.check_call(['ogr2ogr', '-f', 'GPKG', gpkgFile, gmlFile])
+                subprocess.check_call(['ogr2ogr', '-f', 'GPKG', gpkgFile, gmlFile, *conversionParams])
             except subprocess.CalledProcessError:
                 self.iface.messageBar().pushMessage(
                     'EGiB GML',
