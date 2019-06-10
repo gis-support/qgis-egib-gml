@@ -10,7 +10,7 @@
 name=EGiB GML
 qgisMinimumVersion=3.0
 description=Wtyczka do wczytywania danych EGiB w formacie GML
-version=0.1
+version=1.0
 author=Marek Wasilczyk (GIS Support Sp. z o.o.)
 email=marek.wasilczyk@gis-support.pl
 

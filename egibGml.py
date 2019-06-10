@@ -30,9 +30,12 @@ from .egibGml_dockwidget import EgibGmlDockWidget
 import os
 import subprocess
 
-from qgis.core import QgsVectorLayer, QgsProject, QgsDataProvider, QgsLayerTreeLayer, Qgis
+from qgis.core import (
+    QgsVectorLayer, QgsProject, QgsDataProvider, QgsLayerTreeLayer, Qgis, QgsRelation
+)
 
 from osgeo import ogr
+import sqlite3
 
 
 class EgibGml:
@@ -143,9 +146,10 @@ class EgibGml:
                 self.iface.messageBar().pushMessage(
                     'EGiB GML',
                     'Nie udało się wczytać pliku GML. Wystąpił błąd podczas konwersji GML -> GeoPackage',
-                    level=Qgis.Critical)
+                    level=Qgis.Critical
+                )
                 return 0
-        
+
         if os.path.isfile(gpkgFile):
             result = QMessageBox.question(self.dockwidget, 'Znany plik',
                 'Plik GML o podanej nazwie został już wcześniej wczytany. Czy chcesz go przywrócić?',
@@ -156,8 +160,35 @@ class EgibGml:
         else:
             gml2gpkg()
 
+        #Add SQL views to database
+        conn = sqlite3.connect(gpkgFile)
+        c = conn.cursor()
+        try:
+            c.executescript('''
+            CREATE VIEW UdzialWlasnosci AS
+            SELECT t1.*, t2.*
+            FROM EGB_UdzialWlasnosci AS t1
+            LEFT OUTER JOIN EGB_OsobaFizyczna AS t2 ON substr(t1.osobaFizyczna5_href, instr(t1.osobaFizyczna5_href, 'EGiB:')+5)=t2.lokalnyId;
+
+            -- Add view to geopackage
+            INSERT INTO gpkg_contents (table_name, identifier, data_type) VALUES ( 'UdzialWlasnosci', 'UdzialWlasnosci', 'attributes');
+            ''')
+        except sqlite3.OperationalError as error:
+            errorMsg = str(error)
+            if 'already exists' not in errorMsg:
+                self.iface.messageBar().pushMessage(
+                    'EGiB GML',
+                    'Wystąpił błąd podczas tworzenia warstw pomocniczych: %s.' % errorMsg,
+                    level=Qgis.Critical
+                )
+                return
+        conn.commit()
+        conn.close()
+
+        projInst = QgsProject.instance()
+
         #Add map layers
-        root = QgsProject.instance().layerTreeRoot()
+        root = projInst.layerTreeRoot()
         gmlGroup = root.addGroup(gmlName)
         gmlLayers = QgsVectorLayer(gpkgFile, gmlName, 'ogr')
         for layer in gmlLayers.dataProvider().subLayers():
@@ -167,17 +198,42 @@ class EgibGml:
                 layerName
             ), layerName, 'ogr')
             gmlGroup.insertChildNode(1,QgsLayerTreeLayer(vlayer))
-            QgsProject.instance().addMapLayer(vlayer, False)
+            projInst.addMapLayer(vlayer, False)
         try:
             os.remove('%s.gfs' % gmlNoExt)
             os.remove('%s.resolved.gml' % gmlNoExt)
         except FileNotFoundError:
             pass
 
+        #Add QGIS project relations between layers of GPKG
+        relManager = projInst.relationManager()
+        def createRelation(parentLayer, childLayer, pk, fk):
+            newRelation = QgsRelation()
+            newRelation.setReferencedLayer(str(projInst.mapLayersByName(parentLayer)[0].id()))
+            newRelation.setReferencingLayer(str(projInst.mapLayersByName(childLayer)[0].id()))
+            newRelation.addFieldPair(fk, pk)
+            relationId = parentLayer[:10] + '_' + childLayer[:10]
+            newRelation.setName(relationId)
+            newRelation.setId(relationId)
+            relManager.addRelation(newRelation)
+            return newRelation
+
+        addedRelations = []
+        addedRelations.append(createRelation('EGB_DzialkaEwidencyjna', 'UdzialWlasnosci', 'JRG2_href', 'JRG_href'))
+        for rel in addedRelations:
+            if not rel.isValid():
+                self.iface.messageBar().pushMessage(
+                    'EGiB GML',
+                    'Wystąpił błąd podczas tworzenia relacji %s.' % rel.name(),
+                    level=Qgis.Critical
+                )
+                return
+
         self.iface.messageBar().pushMessage(
             'EGiB GML',
             'Pomyślnie dodano warstwę GML.',
-            level=Qgis.Success)
+            level=Qgis.Success
+        )
         self.dockwidget.filePathLabel.setText(os.path.basename(gmlFile))
         self.dockwidget.filePathLabel.setToolTip(gmlFile)
 
