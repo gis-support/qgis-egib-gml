@@ -148,7 +148,7 @@ class EgibGml:
                     'Nie udało się wczytać pliku GML. Wystąpił błąd podczas konwersji GML -> GeoPackage',
                     level=Qgis.Critical
                 )
-                return 0
+                return 1
 
         if os.path.isfile(gpkgFile):
             result = QMessageBox.question(self.dockwidget, 'Znany plik',
@@ -181,7 +181,7 @@ class EgibGml:
                     'Wystąpił błąd podczas tworzenia warstw pomocniczych: %s.' % errorMsg,
                     level=Qgis.Critical
                 )
-                return
+                return 1
         conn.commit()
         conn.close()
 
@@ -207,7 +207,9 @@ class EgibGml:
 
         #Add QGIS project relations between layers of GPKG
         relManager = projInst.relationManager()
+
         def createRelation(parentLayer, childLayer, pk, fk):
+            """ Creates and adds a QGIS relation for given layers and matching fields """
             newRelation = QgsRelation()
             newRelation.setReferencedLayer(str(projInst.mapLayersByName(parentLayer)[0].id()))
             newRelation.setReferencingLayer(str(projInst.mapLayersByName(childLayer)[0].id()))
@@ -227,7 +229,7 @@ class EgibGml:
                     'Wystąpił błąd podczas tworzenia relacji %s.' % rel.name(),
                     level=Qgis.Critical
                 )
-                return
+                return 1
 
         self.iface.messageBar().pushMessage(
             'EGiB GML',
