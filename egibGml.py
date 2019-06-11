@@ -131,10 +131,17 @@ class EgibGml:
         gmlNoExt = gmlFile[:-4]
         gpkgFile = '%s.gpkg' % gmlNoExt
 
-        def gml2gpkg():
-            """Convert GML to GeoPackage"""
-            #Variables necessary for xlink resolution in GMLs
-            conversionParams = [
+        #Convert GML to GeoPackage
+        createGpkg = True
+        if os.path.isfile(gpkgFile):
+            result = QMessageBox.question(self.dockwidget, 'Znany plik',
+                'Plik GML o podanej nazwie został już wcześniej wczytany. Czy chcesz go przywrócić?',
+                QMessageBox.Yes | QMessageBox.No,
+                QMessageBox.Yes)
+            if result == QMessageBox.Yes:
+                createGpkg = False
+        if createGpkg:
+            conversionParams = [ #Variables necessary for xlink resolution in GMLs
                 '--config',
                 'GML_ATTRIBUTES_TO_OGR_FIELDS',
                 'YES',
@@ -152,38 +159,33 @@ class EgibGml:
                 )
                 return 1
 
-        if os.path.isfile(gpkgFile):
-            result = QMessageBox.question(self.dockwidget, 'Znany plik',
-                'Plik GML o podanej nazwie został już wcześniej wczytany. Czy chcesz go przywrócić?',
-                QMessageBox.Yes | QMessageBox.No,
-                QMessageBox.Yes)
-            if result == QMessageBox.No:
-                gml2gpkg()
-        else:
-            gml2gpkg()
-
         #Add SQL views to database
         conn = sqlite3.connect(gpkgFile)
         c = conn.cursor()
-        try:
-            c.executescript('''
-            CREATE VIEW UdzialWlasnosci AS
+        sqls = [
+            '''CREATE VIEW UdzialWlasnosci AS
             SELECT t1.*, t2.*
             FROM EGB_UdzialWlasnosci AS t1
-            LEFT OUTER JOIN EGB_OsobaFizyczna AS t2 ON substr(t1.osobaFizyczna5_href, instr(t1.osobaFizyczna5_href, 'EGiB:')+5)=t2.lokalnyId;
-
-            -- Add view to geopackage
-            INSERT INTO gpkg_contents (table_name, identifier, data_type) VALUES ( 'UdzialWlasnosci', 'UdzialWlasnosci', 'attributes');
-            ''')
-        except sqlite3.OperationalError as error:
-            errorMsg = str(error)
-            if 'already exists' not in errorMsg:
-                self.iface.messageBar().pushMessage(
-                    'EGiB GML',
-                    'Wystąpił błąd podczas tworzenia warstw pomocniczych: %s.' % errorMsg,
-                    level=Qgis.Critical
-                )
-                return 1
+            LEFT OUTER JOIN EGB_OsobaFizyczna AS t2 ON substr(t1.osobaFizyczna5_href, instr(t1.osobaFizyczna5_href, 'EGiB:')+5)=t2.lokalnyId;''',
+            '''-- Add view to geopackage
+            INSERT INTO gpkg_contents (table_name, identifier, data_type) VALUES ( 'UdzialWlasnosci', 'UdzialWlasnosci', 'attributes');'''
+        ]
+        for sql in sqls:
+            try:
+                errorMsg = ''
+                c.execute(sql)
+            except sqlite3.OperationalError as error:
+                errorMsg = str(error) if 'already exists' not in str(error) else None
+            except sqlite3.IntegrityError as error:
+                errorMsg = str(error) if str(error) != 'UNIQUE constraint failed: gpkg_contents.identifier' else None
+            finally:
+                if errorMsg:
+                    self.iface.messageBar().pushMessage(
+                        'EGiB GML',
+                        'Wystąpił błąd podczas tworzenia warstw pomocniczych: %s.' % errorMsg,
+                        level=Qgis.Critical
+                    )
+                    return 1
         conn.commit()
         conn.close()
 
@@ -208,22 +210,8 @@ class EgibGml:
             pass
 
         #Add QGIS project relations between layers of GPKG
-        relManager = projInst.relationManager()
-
-        def createRelation(parentLayer, childLayer, pk, fk):
-            """ Creates and adds a QGIS relation for given layers and matching fields """
-            newRelation = QgsRelation()
-            newRelation.setReferencedLayer(str(projInst.mapLayersByName(parentLayer)[0].id()))
-            newRelation.setReferencingLayer(str(projInst.mapLayersByName(childLayer)[0].id()))
-            newRelation.addFieldPair(fk, pk)
-            relationId = parentLayer[:10] + '_' + childLayer[:10]
-            newRelation.setName(relationId)
-            newRelation.setId(relationId)
-            relManager.addRelation(newRelation)
-            return newRelation
-
         addedRelations = []
-        addedRelations.append(createRelation('EGB_DzialkaEwidencyjna', 'UdzialWlasnosci', 'JRG2_href', 'JRG_href'))
+        addedRelations.append(self.createRelation(projInst, 'EGB_DzialkaEwidencyjna', 'UdzialWlasnosci', 'JRG2_href', 'JRG_href'))
         for rel in addedRelations:
             if not rel.isValid():
                 self.iface.messageBar().pushMessage(
@@ -240,6 +228,22 @@ class EgibGml:
         )
         self.dockwidget.filePathLabel.setText(os.path.basename(gmlFile))
         self.dockwidget.filePathLabel.setToolTip(gmlFile)
+
+
+    def createRelation(self, project, parentLayer, childLayer, pk, fk):
+        """ Creates and adds a QGIS relation for given layers and matching fields """
+
+        relManager = project.relationManager()
+        newRelation = QgsRelation()
+        newRelation.setReferencedLayer(str(project.mapLayersByName(parentLayer)[0].id()))
+        newRelation.setReferencingLayer(str(project.mapLayersByName(childLayer)[0].id()))
+        newRelation.addFieldPair(fk, pk)
+        relationId = parentLayer[:10] + '_' + childLayer[:10]
+        newRelation.setName(relationId)
+        newRelation.setId(relationId)
+        relManager.addRelation(newRelation)
+
+        return newRelation
 
 
     def unload(self):
