@@ -125,6 +125,8 @@ class EgibGml:
 
     def loadGml(self):
         gmlFile = QFileDialog.getOpenFileName(None, 'Wybierz plik GML...', filter='*.gml *.xml')[0]
+        if not gmlFile:
+            return 1
         gmlName = os.path.basename(gmlFile)[:-4]
         gmlNoExt = gmlFile[:-4]
         gpkgFile = '%s.gpkg' % gmlNoExt
