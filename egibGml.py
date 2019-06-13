@@ -129,9 +129,14 @@ class EgibGml:
             return 1
         gmlName = os.path.basename(gmlFile)[:-4]
         gmlNoExt = gmlFile[:-4]
-        gpkgFile = '%s.gpkg' % gmlNoExt
+
+        #Check for existing GFS file
+        gfsFile = '%s.gfs' % gmlNoExt
+        if os.path.isfile(gfsFile):
+            os.rename(gfsFile, '%s_temp.gfs' % gmlNoExt)
 
         #Convert GML to GeoPackage
+        gpkgFile = '%s.gpkg' % gmlNoExt
         createGpkg = True
         if os.path.isfile(gpkgFile):
             result = QMessageBox.question(self.dockwidget, 'Znany plik',
@@ -157,6 +162,7 @@ class EgibGml:
                     'Nie udało się wczytać pliku GML. Wystąpił błąd podczas konwersji GML -> GeoPackage',
                     level=Qgis.Critical
                 )
+                self.cleanAuxFiles(gmlNoExt)
                 return 1
 
         #Add SQL views to database
@@ -185,6 +191,7 @@ class EgibGml:
                         'Wystąpił błąd podczas tworzenia warstw pomocniczych: %s.' % errorMsg,
                         level=Qgis.Critical
                     )
+                    self.cleanAuxFiles(gmlNoExt)
                     return 1
         conn.commit()
         conn.close()
@@ -203,11 +210,7 @@ class EgibGml:
             ), layerName, 'ogr')
             gmlGroup.insertChildNode(1,QgsLayerTreeLayer(vlayer))
             projInst.addMapLayer(vlayer, False)
-        try:
-            os.remove('%s.gfs' % gmlNoExt)
-            os.remove('%s.resolved.gml' % gmlNoExt)
-        except FileNotFoundError:
-            pass
+        self.cleanAuxFiles(gmlNoExt)
 
         #Add QGIS project relations between layers of GPKG
         addedRelations = []
@@ -244,6 +247,21 @@ class EgibGml:
         relManager.addRelation(newRelation)
 
         return newRelation
+
+
+    def cleanAuxFiles(self, gmlNoExt):
+        """ Removes auxiliary import files """
+
+        gfsFile = '%s.gfs' % gmlNoExt
+        try:
+            os.remove(gfsFile)
+            os.remove('%s.resolved.gml' % gmlNoExt)
+        except FileNotFoundError:
+            pass
+        try:
+            os.rename('%s_temp.gfs' % gmlNoExt, gfsFile)
+        except FileNotFoundError:
+            pass
 
 
     def unload(self):
