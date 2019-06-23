@@ -169,12 +169,62 @@ class EgibGml:
         conn = sqlite3.connect(gpkgFile)
         c = conn.cursor()
         sqls = [
-            '''CREATE VIEW UdzialWlasnosci AS
-            SELECT t1.*, t2.*
-            FROM EGB_UdzialWlasnosci AS t1
-            LEFT OUTER JOIN EGB_OsobaFizyczna AS t2 ON substr(t1.osobaFizyczna5_href, instr(t1.osobaFizyczna5_href, 'EGiB:')+5)=t2.lokalnyId;''',
-            '''-- Add view to geopackage
-            INSERT INTO gpkg_contents (table_name, identifier, data_type) VALUES ( 'UdzialWlasnosci', 'UdzialWlasnosci', 'attributes');'''
+            '''
+            CREATE VIEW UdzialWlasnosciOsobaFizyczna AS
+                SELECT udzial.*, osfiz.* FROM EGB_UdzialWlasnosci AS udzial
+                JOIN
+                (SELECT t1.*, t2.*
+                FROM EGB_OsobaFizyczna AS t1
+                    LEFT JOIN EGB_Adres AS t2 ON substr(t1.adresOsobyFizycznej_href, instr(t1.adresOsobyFizycznej_href, 'EGiB:')+5)=t2.lokalnyId
+                ) AS osfiz
+                ON substr(udzial.osobaFizyczna5_href, instr(udzial.osobaFizyczna5_href, 'EGiB:')+5)=osfiz.lokalnyId;
+            ''',
+            '''
+            CREATE VIEW UdzialWlasnosciMalzenstwo AS
+                SELECT udzial.*, malzenstwo.* FROM EGB_UdzialWlasnosci AS udzial
+                JOIN
+                (SELECT t1.*, t2.*, t3.*
+                FROM EGB_Malzenstwo AS t1
+                    LEFT JOIN EGB_OsobaFizyczna AS t2 ON (substr(t1.osobaFizyczna2_href, instr(t1.osobaFizyczna2_href, 'EGiB:')+5)=t2.lokalnyId
+                        OR substr(t1.osobaFizyczna3_href, instr(t1.osobaFizyczna3_href, 'EGiB:')+5)=t2.lokalnyId)
+                    LEFT JOIN EGB_Adres AS t3 ON substr(t2.adresOsobyFizycznej_href, instr(t2.adresOsobyFizycznej_href, 'EGiB:')+5)=t3.lokalnyId
+                ) AS malzenstwo
+                ON substr(udzial.malzenstwo4_href, instr(udzial.malzenstwo4_href, 'EGiB:')+5)=malzenstwo.lokalnyId;
+            ''',
+            '''
+            CREATE VIEW UdzialWlasnosciInstytucja AS
+                SELECT udzial.*, instytucja.* FROM EGB_UdzialWlasnosci AS udzial
+                JOIN
+                (SELECT t1.*, t2.*
+                FROM EGB_Instytucja AS t1
+                    LEFT JOIN EGB_Adres AS t2 ON substr(t1.adresInstytucji_href, instr(t1.adresInstytucji_href, 'EGiB:')+5)=t2.lokalnyId
+                ) AS instytucja
+                ON substr(udzial.instytucja3_href, instr(udzial.instytucja3_href, 'EGiB:')+5)=instytucja.lokalnyId;
+            ''',
+            '''
+            CREATE VIEW UdzialWlasnosciGrupowy AS
+                SELECT udzial.*, grupowy.* FROM EGB_UdzialWlasnosci AS udzial
+                JOIN
+                (SELECT t1.*, t2.*, t3.*
+                FROM EGB_PodmiotGrupowy AS t1
+                    LEFT JOIN EGB_OsobaFizyczna AS t2 ON substr(t1.osobaFizyczna4_href, instr(t1.osobaFizyczna4_href, 'EGiB:')+5)=t2.lokalnyId
+                    LEFT JOIN EGB_Adres AS t3 ON substr(t1.adresPodmiotuGrupowego_href, instr(t1.adresPodmiotuGrupowego_href, 'EGiB:')+5)=t3.lokalnyId
+                ) AS grupowy
+                ON substr(udzial.podmiotGrupowy1_href, instr(udzial.podmiotGrupowy1_href, 'EGiB:')+5)=grupowy.lokalnyId;
+            ''',
+            # Add above views to geopackage
+            '''
+            INSERT INTO gpkg_contents (table_name, identifier, data_type) VALUES ( 'UdzialWlasnosciGrupowy', 'UdzialWlasnosciGrupowy', 'attributes');
+            ''',
+            '''
+            INSERT INTO gpkg_contents (table_name, identifier, data_type) VALUES ( 'UdzialWlasnosciMalzenstwo', 'UdzialWlasnosciMalzenstwo', 'attributes');
+            ''',
+            '''
+            INSERT INTO gpkg_contents (table_name, identifier, data_type) VALUES ( 'UdzialWlasnosciInstytucja', 'UdzialWlasnosciInstytucja', 'attributes');
+            ''',
+            '''
+            INSERT INTO gpkg_contents (table_name, identifier, data_type) VALUES ( 'UdzialWlasnosciOsobaFizyczna', 'UdzialWlasnosciOsobaFizyczna', 'attributes');
+            '''
         ]
         for sql in sqls:
             try:
@@ -213,8 +263,12 @@ class EgibGml:
         self.cleanAuxFiles(gmlNoExt)
 
         #Add QGIS project relations between layers of GPKG
-        addedRelations = []
-        addedRelations.append(self.createRelation(projInst, 'EGB_DzialkaEwidencyjna', 'UdzialWlasnosci', 'JRG2_href', 'JRG_href'))
+        addedRelations = [
+            self.createRelation(projInst, 'EGB_DzialkaEwidencyjna', 'UdzialWlasnosciOsobaFizyczna', 'JRG2_href', 'JRG_href'),
+            self.createRelation(projInst, 'EGB_DzialkaEwidencyjna', 'UdzialWlasnosciMalzenstwo', 'JRG2_href', 'JRG_href'),
+            self.createRelation(projInst, 'EGB_DzialkaEwidencyjna', 'UdzialWlasnosciInstytucja', 'JRG2_href', 'JRG_href'),
+            self.createRelation(projInst, 'EGB_DzialkaEwidencyjna', 'UdzialWlasnosciGrupowy', 'JRG2_href', 'JRG_href')
+        ]
         for rel in addedRelations:
             if not rel.isValid():
                 self.iface.messageBar().pushMessage(
@@ -241,7 +295,7 @@ class EgibGml:
         newRelation.setReferencedLayer(str(project.mapLayersByName(parentLayer)[0].id()))
         newRelation.setReferencingLayer(str(project.mapLayersByName(childLayer)[0].id()))
         newRelation.addFieldPair(fk, pk)
-        relationId = parentLayer[:10] + '_' + childLayer[:10]
+        relationId = parentLayer[:10] + '_' + childLayer
         newRelation.setName(relationId)
         newRelation.setId(relationId)
         relManager.addRelation(newRelation)
